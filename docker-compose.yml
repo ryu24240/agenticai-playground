@@ -18,6 +18,8 @@ services:
     container_name: chat_server
     ports:
       - "8000:8000"
+    volumes:
+      - ./chat_server:/app
     environment:
       - ORCHESTRATOR_URL=http://orchestrator:8100
     depends_on:

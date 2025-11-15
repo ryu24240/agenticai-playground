@@ -8,7 +8,6 @@ st.set_page_config(page_title="AI Agent Playground", page_icon="🤖")
 st.title("AI Agent Playground")
 
 if "session_id" not in st.session_state:
-    # 適当にランダムでもOK。ここでは簡易に。
     import uuid
     st.session_state["session_id"] = str(uuid.uuid4())
 
