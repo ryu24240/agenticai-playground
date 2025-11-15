@@ -1,0 +1,59 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - CHAT_SERVER_URL=http://chat_server:8000
+    depends_on:
+      - chat_server
+
+  chat_server:
+    build:
+      context: ./chat_server
+      dockerfile: Dockerfile.chat_server
+    container_name: chat_server
+    ports:
+      - "8000:8000"
+    environment:
+      - ORCHESTRATOR_URL=http://orchestrator:8100
+    depends_on:
+      - orchestrator
+
+  orchestrator:
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile.orchestrator
+    container_name: orchestrator
+    ports:
+      - "8100:8100"
+    environment:
+      - LLM_URL=http://llm:11434
+      - QDRANT_URL=http://qdrant:6333
+      - BACKEND= simple_llm  # semantic_kernel / langgraph に差し替え予定
+    depends_on:
+      - llm
+      - qdrant
+
+  llm:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+volumes:
+  ollama_data:
+  qdrant_data:
