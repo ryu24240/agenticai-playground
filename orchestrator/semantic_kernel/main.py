@@ -1,8 +1,11 @@
+import os
+
 from pydantic import BaseModel
 from typing import List
 
-from fastapi import FastAPI
-from semantic_kernel.kernel import Kernel
+from fastapi import FastAPI, HTTPException
+from semantic_kernel.kernel import Kernel, ChatHistory
+from semantic_kernel.connectors.ai.ollama import OllamaChatCompletion, OllamaChatPromptExecutionSettings
 
 class Message(BaseModel):
     role: str
@@ -14,15 +17,26 @@ class ChatRequest(BaseModel):
     
 class ChatResponse(BaseModel):
     reply: str
+    
+model_endpoint = os.getenv("LLM_URL", "http://localhost:11434")
 
 app = FastAPI(title="Semantic Kernel Orchestrator")
 kernel = Kernel()
 
-@app.post("/orchestrate")
-def orchestrate(req: ChatRequest) -> ChatResponse:
-    user_message = req.messages[-1].content
-    res = mock_agent(user_message)
-    return ChatResponse(reply=res)
+chat_completion = OllamaChatCompletion(ai_model_id="llama3.1:latest", host=model_endpoint)
+kernel.add_service(chat_completion)
+execution_settings = OllamaChatPromptExecutionSettings()
+chat_history = ChatHistory()
 
-def mock_agent(user_message: str):
-    return f"You Said: {user_message}"
+@app.post("/orchestrate")
+async def orchestrate(req: ChatRequest) -> ChatResponse:
+    if not req.messages:
+        raise HTTPException(status_code=400, detail="No messages provided")
+    else: 
+        chat_history.add_user_message(req.messages[-1].content)
+        res = await chat_completion.get_chat_message_content(
+            chat_history = chat_history,
+            settings = execution_settings,
+        )
+        
+        return ChatResponse(reply=str(res))
