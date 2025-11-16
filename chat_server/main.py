@@ -1,7 +1,10 @@
+import os
+import httpx
+
 from pydantic import BaseModel
 from typing import List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 class Message(BaseModel):
     role: str
@@ -14,6 +17,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
 
+ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://semantic_kernel:8100")
 
 app = FastAPI(title="Chat Server")
 
@@ -22,6 +26,16 @@ def health_check():
     return {"status": "ok"}
 
 @app.post("/chat")
-def chat(req: ChatRequest) -> ChatResponse:
-    echo_reply = "You Said:" + req.messages[-1].content
-    return ChatResponse(reply=echo_reply)
+async def chat(req: ChatRequest) -> ChatResponse:
+    if not req.messages:
+        raise HTTPException(status_code=400, detail="No messages provided")
+    else:
+        json_payload = req.model_dump()
+        async with httpx.AsyncClient() as client:
+            response = await client.post(f"{ORCHESTRATOR_URL}/orchestrate", json=json_payload, timeout=60)
+            response.raise_for_status()
+            data = response.json()
+            # reply = data.get("reply", "(no reply)")
+        return ChatResponse(reply=data.get("reply", "(no reply)"))
+        # echo_reply = "You Said:" + req.messages[-1].content
+        # return ChatResponse(reply=echo_reply)

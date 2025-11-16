@@ -21,17 +21,19 @@ services:
     volumes:
       - ./chat_server:/app
     environment:
-      - ORCHESTRATOR_URL=http://orchestrator:8100
+      - ORCHESTRATOR_URL=http://semantic_kernel:8100
     depends_on:
-      - orchestrator
+      - semantic_kernel
 
-  orchestrator:
+  semantic_kernel:
     build:
-      context: ./orchestrator
-      dockerfile: Dockerfile.orchestrator
-    container_name: orchestrator
+      context: ./orchestrator/semantic_kernel
+      dockerfile: Dockerfile.semantic_kernel
+    container_name: semantic_kernel
     ports:
       - "8100:8100"
+    volumes:
+      - ./orchestrator/semantic_kernel:/app
     environment:
       - LLM_URL=http://llm:11434
       - QDRANT_URL=http://qdrant:6333
