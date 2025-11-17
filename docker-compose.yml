@@ -46,6 +46,27 @@ services:
       - llm
       - qdrant
 
+  # --8<-- [start: Subagents] ------
+  faq_rag_agent:
+    build:
+      context: ./sub_agent/faq_rag_agent
+      dockerfile: Dockerfile.faq_rag_agent
+    container_name: faq_rag_agent
+    ports:
+      - "8200:8200"
+    volumes:
+      - ./sub_agent/faq_rag_agent:/app
+    env_file:
+      - .env
+    environment:
+      - FAQ_RAG_AGENT_PORT=8200
+      - LLM_URL=http://llm:11434
+      - QDRANT_URL=http://qdrant:6333
+    depends_on:
+      - llm
+      - qdrant
+  # --8<-- [end: Subagents] ------
+
   llm:
     image: ollama/ollama:latest
     container_name: ollama

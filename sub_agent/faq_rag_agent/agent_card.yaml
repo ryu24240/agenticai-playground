@@ -1,0 +1,11 @@
+id: faq_rag_agent
+name: "FAQ RAG Agent"
+base_url: "http://faq_rag_agent:8200"
+description: >
+  Answers user questions by searching FAQ knowledge base. (現在はモック実装)
+
+capabilities:
+  - name: search_faq
+    description: "Search FAQ entries relevant to the given question."
+    endpoint: "/faq/search"
+    method: "POST"
