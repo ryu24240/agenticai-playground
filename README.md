@@ -68,7 +68,7 @@ docker compose up -d
 
 ### 4. Install an LLM model via Ollama
 ```
-docker exec -it ai_ollama bash
+docker exec -it ollama bash
 ollama pull llama3.1
 exit
 ```

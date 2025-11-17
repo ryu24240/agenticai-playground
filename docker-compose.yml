@@ -6,6 +6,8 @@ services:
     container_name: frontend
     ports:
       - "8501:8501"
+    volumes:
+      - ./frontend:/app
     environment:
       - CHAT_SERVER_URL=http://chat_server:8000
     depends_on:
@@ -21,7 +23,8 @@ services:
     volumes:
       - ./chat_server:/app
     environment:
-      - ORCHESTRATOR_URL=http://semantic_kernel:8100
+      - SEMANTIC_KERNEL_URL=http://semantic_kernel:8100
+      - LANGGRAPH_URL=http://langgraph:8200
     depends_on:
       - semantic_kernel
 
@@ -34,10 +37,11 @@ services:
       - "8100:8100"
     volumes:
       - ./orchestrator/semantic_kernel:/app
+    env_file:
+      - .env
     environment:
       - LLM_URL=http://llm:11434
       - QDRANT_URL=http://qdrant:6333
-      - BACKEND= simple_llm  # semantic_kernel / langgraph に差し替え予定
     depends_on:
       - llm
       - qdrant
