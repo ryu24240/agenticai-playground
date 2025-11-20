@@ -25,8 +25,8 @@ QWEN_MODEL_NAME = os.getenv("MODEL_NAME")
 OPENAI_API_KEY = "this is dummy"
 
 SYSTEM_PROMPT = """
-あなたは銀行向けのサブエージェントです。
-このエージェントは、銀行の公開FAQに対して日本語で分かりやすく説明する役割を持ちます。
+あなたは"エージェンティック銀行"向けのサブエージェントです。
+このエージェントは、エージェンティック銀行の公開FAQに対して日本語で分かりやすく説明する役割を持ちます。
 
 - 回答は必ず日本語で行ってください。
 - 分からないことは無理に断定せず、「推測」「一般的には〜」といった形で慎重に回答してください。
@@ -71,7 +71,8 @@ class SKSubAgentExecutor(AgentExecutor):
             instructions=SYSTEM_PROMPT,
         )
 
-        self.agent.configure_service()
+        self.llama_agent.configure_service()
+        self.qwen_agent.configure_service()
 
     async def execute(
         self,
@@ -84,11 +85,25 @@ class SKSubAgentExecutor(AgentExecutor):
         """
         user_input = context.get_user_input() or ""
 
+        print("[faq_rag_agent] context =", context)
+
         history = ChatHistory()
         history.add_user_message(user_input)
 
+        model = None
+
+        if hasattr(context, "metadata") and context.metadata:
+            model = context.metadata.get("model")
+
+        print(f"[faq_rag_agent] model={model}, user_input={user_input}")
+
+        if model == "qwen":
+            agent = self.qwen_agent
+        else:
+            agent = self.llama_agent
+
         # TODO：modelごとにリクエストルーティング
-        response_content = await self.agent.get_response(history)
+        response_content = await agent.get_response(history)
 
         text = response_content.content
         if isinstance(text, list):
@@ -108,8 +123,8 @@ class SKSubAgentExecutor(AgentExecutor):
 skill = AgentSkill(
     id="mock_bank_subagent",
     name="Mock Bank SubAgent",
-    description="銀行向けチャットボットのサブエージェント。公開FAQの説明を行う。",
-    tags=["bank", "FAQ", "semantic-kernel"],
+    description="エージェンティック銀行向けチャットボットのサブエージェント。公開FAQの説明を行う。",
+    tags=["agentic-bank", "FAQ", "semantic-kernel"],
     examples=[
         "振込の手順を教えて",
         "subagent: テストとしてこのサブエージェントに話しかけています",
@@ -117,8 +132,8 @@ skill = AgentSkill(
 )
 
 public_agent_card = AgentCard(
-    name="Mock Semantic Kernel Bank FAQ SubAgent",
-    description="Semantic Kernel ベースで実装された銀行向けFAQサブエージェント。",
+    name="Agentic-Bank FAQ SubAgent",
+    description="Semantic Kernel ベースで実装されたエージェンティック銀行向けFAQサブエージェント。",
     url=os.getenv("PUBLIC_AGENT_URL", "http://mock_agent_server:8200/"),
     version="1.0.0",
     default_input_modes=["text"],

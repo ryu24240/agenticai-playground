@@ -45,6 +45,7 @@ services:
     depends_on:
       - llm
       - qdrant
+      - faq_rag_agent
 
   # --8<-- [start: Subagents] ------
   faq_rag_agent:

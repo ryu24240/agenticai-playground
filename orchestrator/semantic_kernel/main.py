@@ -17,12 +17,13 @@ from semantic_kernel.connectors.ai.ollama import OllamaChatCompletion, OllamaCha
 from semantic_kernel.connectors.ai.open_ai import OpenAIChatCompletion, OpenAIChatPromptExecutionSettings
 from semantic_kernel.agents import ChatCompletionAgent, ChatHistoryAgentThread
 from semantic_kernel.functions import kernel_function
+from semantic_kernel.connectors.ai.function_choice_behavior import FunctionChoiceBehavior
 
 from a2a.types import Message as A2AMessage, Part, Role
 from a2a.types import TextPart as A2ATextPart
 
 
-from a2aclient import A2AClient
+from a2aclient.client import A2AClient
 
 class Message(BaseModel):
     role: str
@@ -42,6 +43,10 @@ QWEN_ENDPOINT = os.getenv("MODEL_ENDPOINT")
 QWEN_MODEL_NAME = os.getenv("MODEL_NAME")
 OPENAI_API_KEY = "this is dummy"
 
+REMOTE_AGENT_ADDRESSES: List[str] = [
+    "http://faq_rag_agent:8200",
+]
+
 async_openai = AsyncOpenAI(base_url=QWEN_ENDPOINT, api_key=OPENAI_API_KEY)
 
 
@@ -55,14 +60,6 @@ qwen_service = OpenAIChatCompletion(
         api_key=OPENAI_API_KEY,
         async_client=async_openai,
     )
-
-# kernel.add_service(llama_service)
-# kernel.add_service(qwen_service)
-
-# llama_execution_settings = OllamaChatPromptExecutionSettings()
-# qwen_execution_settings = OpenAIChatPromptExecutionSettings()
-
-# chat_history = ChatHistory()
 
 thread = ChatHistoryAgentThread()
 
@@ -133,7 +130,7 @@ class A2AOrchestratorPlugin:
 
 
 ORCHESTRATOR_INSTRUCTIONS = """
-You are an expert delegator agent inside a banking AI system.
+You are an expert delegator agent inside a 'Agentic banking' AI system.
 
 - You can delegate user requests to remote agents over the A2A protocol.
 - Use the tool `list_remote_agents` to discover which remote agents are available.
@@ -141,7 +138,7 @@ You are an expert delegator agent inside a banking AI system.
   specific remote agent by its name.
 - Always base your answer on the actual tool results.
 - When you delegate to a remote agent, clearly mention which agent you used in
-  your final answer (e.g. 'Using Bank FAQ Agent: ...').
+  your final answer (e.g. 'Using Agentic Bank FAQ Agent: ...').
 - If the request is simple chit-chat or does not require any remote action,
   you may answer directly on your own.
 """.strip()
@@ -151,21 +148,32 @@ You are an expert delegator agent inside a banking AI system.
 async def lifespan(app: FastAPI):
     http_client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=30.0))
 
-    a2a_client = A2AClient.test_a2a_call("http://faq_rag_agent:8200")
-    a2a_plugin = A2AOrchestratorPlugin(a2a_client)
+    a2a_client = None
+    a2a_plugin = None
+
+    try: 
+        a2a_client = await A2AClient.create(REMOTE_AGENT_ADDRESSES, http_client)
+        a2a_plugin = A2AOrchestratorPlugin(a2a_client)
+        print("[semantic_kernel] A2A client initialized. cards=",
+              [c.name for c in a2a_client.cards])
+    except Exception as e:
+        print(f"[semantic_kernel] Failed to init A2A client: {e}")
+        a2a_client = None
+        a2a_plugin = None
 
     llama_agent = ChatCompletionAgent(
         service=llama_service,
         name="llama-agent",
         instructions="You are a helpful assistant using local llama.",
-        plugins=[a2a_plugin],
+        plugins=[a2a_plugin] if a2a_plugin is not None else [],
+        function_choice_behavior=FunctionChoiceBehavior.Auto(),
     )
 
     qwen_agent = ChatCompletionAgent(
         service=qwen_service,
         name="qwen-agent",
         instructions="You are a helpful assistant using Qwen model.",
-        plugins=[a2a_plugin],
+        plugins=[a2a_plugin] if a2a_plugin is not None else [],
     )
 
     app.state.http_client = http_client
@@ -192,13 +200,12 @@ async def orchestrate(req: ChatRequest,) -> ChatResponse:
     if not req.messages:
         raise HTTPException(status_code=400, detail="No messages provided")
     
-    last_user_message = req.messages[-1].content
     model = req.model or "llama"
 
     if model == "llama":
-        agent = req.app.state.llama_agent
+        agent = app.state.llama_agent
     elif model == "qwen":
-        agent = req.app.state.qwen_agent
+        agent = app.state.qwen_agent
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported model: {model}")
     
@@ -220,9 +227,8 @@ async def orchestrate(req: ChatRequest,) -> ChatResponse:
 
         return ChatResponse(reply=text)
     except Exception as e:
-        return [
-            Message(
-                role="system",
-                content=f"error: agent_error: {type(e).__name__}: {e}",
-            )
-        ]
+        raise HTTPException(
+            status_code=500,
+            detail=f"agent_error: {type(e).__name__}: {e}",
+        )
+        
