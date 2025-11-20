@@ -57,14 +57,14 @@ class SKSubAgentExecutor(AgentExecutor):
         kernel.add_service(llama_service)
         kernel.add_service(qwen_service)
 
-        self.agent = ChatCompletionAgent(
+        self.llama_agent = ChatCompletionAgent(
             service=llama_service,
             name="llama-faq-subagent",
             kernel=kernel,
             instructions=SYSTEM_PROMPT,
         )
 
-        self.agent = ChatCompletionAgent(
+        self.qwen_agent = ChatCompletionAgent(
             service=qwen_service,
             name="qwen-faq-subagent",
             kernel=kernel,

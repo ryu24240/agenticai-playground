@@ -1,15 +1,28 @@
-import os
+from __future__ import annotations
 
+import json
+import os
+import uuid
+from contextlib import asynccontextmanager
+
+import httpx
 from pydantic import BaseModel
-from typing import List
+from typing import List, Annotated
+
+from fastapi import FastAPI, HTTPException, Depends
 
 from openai import AsyncOpenAI
-from fastapi import FastAPI, HTTPException
-
 from semantic_kernel.kernel import Kernel, ChatHistory
 from semantic_kernel.connectors.ai.ollama import OllamaChatCompletion, OllamaChatPromptExecutionSettings
 from semantic_kernel.connectors.ai.open_ai import OpenAIChatCompletion, OpenAIChatPromptExecutionSettings
 from semantic_kernel.agents import ChatCompletionAgent, ChatHistoryAgentThread
+from semantic_kernel.functions import kernel_function
+
+from a2a.types import Message as A2AMessage, Part, Role
+from a2a.types import TextPart as A2ATextPart
+
+
+from a2aclient import A2AClient
 
 class Message(BaseModel):
     role: str
@@ -31,7 +44,7 @@ OPENAI_API_KEY = "this is dummy"
 
 async_openai = AsyncOpenAI(base_url=QWEN_ENDPOINT, api_key=OPENAI_API_KEY)
 
-app = FastAPI(title="Semantic Kernel Orchestrator")
+
 kernel = Kernel()
 
 llama_service = OllamaChatCompletion(
@@ -43,18 +56,6 @@ qwen_service = OpenAIChatCompletion(
         async_client=async_openai,
     )
 
-llama_agent = ChatCompletionAgent(
-    service=llama_service,
-    name="llama-agent",
-    instructions="You are a helpful assistant using local llama.",
-)
-
-qwen_agent = ChatCompletionAgent(
-    service=qwen_service,
-    name="qwen-agent",
-    instructions="You are a helpful assistant using Qwen model.",
-)
-
 # kernel.add_service(llama_service)
 # kernel.add_service(qwen_service)
 
@@ -62,10 +63,132 @@ qwen_agent = ChatCompletionAgent(
 # qwen_execution_settings = OpenAIChatPromptExecutionSettings()
 
 # chat_history = ChatHistory()
+
 thread = ChatHistoryAgentThread()
 
+class A2AOrchestratorPlugin:
+    """
+    ChatCompletionAgent から呼び出される「ツール」としての A2A プラグイン。
+
+    - list_remote_agents()
+        -> 利用可能なリモートエージェント一覧を返す
+    - send_message_to_remote_agent(agent_name, message)
+        -> 指定したリモートエージェントに A2A でメッセージ送信
+    """
+
+    def __init__(self, a2a_client: A2AClient):
+        self._a2a_client = a2a_client
+
+    @kernel_function(
+        name="list_remote_agents",
+        description="List available remote A2A agents and their descriptions.",
+    )
+    def list_remote_agents(self) -> Annotated[str, "JSON array of {name, description}"]:
+        """
+        利用可能なリモートエージェントの一覧をJSON文字列で返す。
+        """
+        info = [
+            {"name": card.name, "description": card.description}
+            for card in self._a2a_client.cards
+        ]
+        return json.dumps(info, ensure_ascii=False)
+    
+
+    @kernel_function(
+        name="send_message_to_remote_agent",
+        description=(
+            "Send a user message to a remote A2A agent by name and return the "
+            "agent's textual responses."
+        ),
+    )
+    async def send_message_to_remote_agent(
+        self,
+        agent_name: Annotated[str, "Name property of the remote AgentCard"],
+        message: Annotated[str, "User message to send to the remote agent."],
+    ) -> Annotated[str, "Concatenated text reply from the remote agent"]:
+        """
+        名前で指定されたリモートエージェントにメッセージを送り、
+        text パートを連結して返す。
+        """
+        client = self._a2a_client.clients.get(agent_name)
+        if client is None:
+            raise ValueError(f"Agent {agent_name!r} not found in A2A clients")
+
+        request_message = A2AMessage(
+            role=Role.user,
+            parts=[Part(root=A2ATextPart(text=message))],
+            message_id=str(uuid.uuid4()),
+        )
+
+        texts: list[str] = []
+        async for response in client.send_message(request_message):
+            for part in response.parts:
+                if part.root.kind == "text":
+                    texts.append(part.root.text)
+
+        if not texts:
+            return "Remote agent returned no text parts."
+
+        return "\n".join(texts)
+
+
+ORCHESTRATOR_INSTRUCTIONS = """
+You are an expert delegator agent inside a banking AI system.
+
+- You can delegate user requests to remote agents over the A2A protocol.
+- Use the tool `list_remote_agents` to discover which remote agents are available.
+- For actionable banking tasks, use `send_message_to_remote_agent` to call a
+  specific remote agent by its name.
+- Always base your answer on the actual tool results.
+- When you delegate to a remote agent, clearly mention which agent you used in
+  your final answer (e.g. 'Using Bank FAQ Agent: ...').
+- If the request is simple chit-chat or does not require any remote action,
+  you may answer directly on your own.
+""".strip()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    http_client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=30.0))
+
+    a2a_client = A2AClient.test_a2a_call("http://faq_rag_agent:8200")
+    a2a_plugin = A2AOrchestratorPlugin(a2a_client)
+
+    llama_agent = ChatCompletionAgent(
+        service=llama_service,
+        name="llama-agent",
+        instructions="You are a helpful assistant using local llama.",
+        plugins=[a2a_plugin],
+    )
+
+    qwen_agent = ChatCompletionAgent(
+        service=qwen_service,
+        name="qwen-agent",
+        instructions="You are a helpful assistant using Qwen model.",
+        plugins=[a2a_plugin],
+    )
+
+    app.state.http_client = http_client
+    app.state.a2a_client = a2a_client
+    app.state.llama_agent = llama_agent
+    app.state.qwen_agent = qwen_agent
+
+    try:
+        yield
+    finally:
+        await http_client.aclose()
+
+
+app = FastAPI(
+        title="Semantic Kernel Orchestrator",
+        lifespan=lifespan
+    )
+
+def get_agent(request: ChatRequest) -> ChatCompletionAgent:
+    return request.app.state.agent
+
 @app.post("/orchestrate")
-async def orchestrate(req: ChatRequest) -> ChatResponse:
+async def orchestrate(req: ChatRequest,) -> ChatResponse:
     if not req.messages:
         raise HTTPException(status_code=400, detail="No messages provided")
     
@@ -73,25 +196,33 @@ async def orchestrate(req: ChatRequest) -> ChatResponse:
     model = req.model or "llama"
 
     if model == "llama":
-        agent = llama_agent
+        agent = req.app.state.llama_agent
     elif model == "qwen":
-        agent = qwen_agent
+        agent = req.app.state.qwen_agent
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported model: {model}")
     
-    res = await agent.get_response(
-        messages=last_user_message,
-        thread=thread,
-    )
+    history = ChatHistory()
+    for m in req.messages:
+        if m.role == "user":
+            history.add_user_message(m.content)
+        elif m.role == "assistant":
+            history.add_assistant_message(m.content)
 
-    return ChatResponse(reply=str(res))
-    
+    try:
+        response_content = await agent.get_response(history)
 
-    # else: 
-    #     chat_history.add_user_message(req.messages[-1].content)
-    #     res = await llama_service.get_chat_message_content(
-    #         chat_history = chat_history,
-    #         settings = execution_settings,
-    #     )
-        
-    #     return ChatResponse(reply=str(res))
+        text = response_content.content
+        if isinstance(text, list):
+            text = "".join(map(str, text))
+        if not isinstance(text, str):
+            text = str(response_content)
+
+        return ChatResponse(reply=text)
+    except Exception as e:
+        return [
+            Message(
+                role="system",
+                content=f"error: agent_error: {type(e).__name__}: {e}",
+            )
+        ]

@@ -23,6 +23,8 @@ SEMANTIC_KERNEL_URL = os.getenv("SEMANTIC_KERNEL_URL", "http://semantic_kernel:8
 
 app = FastAPI(title="Chat Server")
 
+## TODO: 会話セッション管理（過去の会話履歴取り出し等）・バリデーション・ストリーミング対応追加
+
 @app.get("/health")
 def health_check():
     return {"status": "ok"}

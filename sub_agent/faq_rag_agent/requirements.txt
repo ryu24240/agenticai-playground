@@ -4,3 +4,6 @@ httpx
 qdrant-client
 pydantic
 python-dotenv
+semantic-kernel>=1.0.0 
+semantic-kernel[ollama]
+a2a-sdk>=0.1.0
