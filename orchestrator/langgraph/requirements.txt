@@ -1,0 +1,3 @@
+langgraph
+langchain
+pydantic>=2.8.0
