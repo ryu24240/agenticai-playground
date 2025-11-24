@@ -1,17 +1,23 @@
+import os
+
 from langchain.messages import ( SystemMessage, HumanMessage, ToolCall)
 from langchain.tools import tool
 from langchain.chat_models import init_chat_model 
 from langchain_core.messages import BaseMessage
 
 from langgraph.graph import add_messages
-from langgrahph.func import entrypoint, task
+from langgraph.func import entrypoint, task
 
 from pydantic import BaseModel, Field
 from typing import List
 
+LLAMA_ENDPOINT = os.getenv("LLM_URL", "http://localhost:11434")
+
 model = init_chat_model(
-    "llama3.1:latest",
+    model="llama3.1:latest",
     model_provider="ollama",
+    base_urk=LLAMA_ENDPOINT,
+    api_key="dummy",
     temperature=0.7,
 )
 
@@ -58,5 +64,11 @@ def agent(messages: List[BaseMessage]):
         messages = add_messages(messages, [model_response, *tool_results])
         model_response = call_llm(messages).result()
         
-        
-    
+    messages = add_messages(messages, model_response)
+    return messages
+
+# Invoke
+messages = [HumanMessage(content="What is 3 + 5?")]
+for chunk in agent.stream(messages, stream_mode="updates"):
+    print(chunk)
+    print("¥n")

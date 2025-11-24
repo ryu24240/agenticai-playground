@@ -47,6 +47,25 @@ services:
       - qdrant
       - faq_rag_agent
 
+  langgraph:
+    build:
+      context: ./orchestrator/langgraph
+      dockerfile: Dockerfile.langgraph
+    container_name: langgraph
+    ports:
+      - "8200:8200"
+    volumes:
+      - ./orchestrator/langgraph:/app
+    env_file:
+      - .env
+    environment:
+      - LLM_URL=http://llm:11434
+      - QDRANT_URL=http://qdrant:6333
+    depends_on:
+      - llm
+      - qdrant
+      - faq_rag_agent
+
   # --8<-- [start: Subagents] ------
   faq_rag_agent:
     build:
@@ -54,7 +73,7 @@ services:
       dockerfile: Dockerfile.faq_rag_agent
     container_name: faq_rag_agent
     ports:
-      - "8200:8200"
+      - "8600:8600"
     volumes:
       - ./sub_agent/faq_rag_agent:/app
     env_file:
