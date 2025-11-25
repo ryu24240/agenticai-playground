@@ -83,6 +83,19 @@ services:
       - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
+    env_file:
+      - .env
+
+  bank_faq_retriever:
+    build:
+      context: .
+      dockerfile: mcp_tools/bank_faq_retriever/Dockerfile.bank_faq_retriever
+    container_name: bank_faq_retriever
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - FAQ_COLLECTION=bank_faq
+    depends_on:
+      - qdrant
 
 volumes:
   ollama_data:

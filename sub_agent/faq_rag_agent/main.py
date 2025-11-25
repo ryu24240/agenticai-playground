@@ -15,8 +15,15 @@ from openai import AsyncOpenAI
 from semantic_kernel import Kernel
 from semantic_kernel.connectors.ai.ollama import OllamaChatCompletion, OllamaChatPromptExecutionSettings
 from semantic_kernel.connectors.ai.open_ai import OpenAIChatCompletion
+from semantic_kernel.connectors.mcp import MCPSsePlugin
 from semantic_kernel.contents import AuthorRole, ChatMessageContent, ChatHistory
 from semantic_kernel.agents import ChatCompletionAgent
+
+# from fastmcp import Client as MCPClient
+
+AGENTIC_BANK_FAQ_MCP_URL = os.getenv("AGENTIC_BANK_FAQ_MCP_URL", "http://bank_faq_retriever:8000/mcp")
+
+
 
 
 LLAMA_ENDPOINT = os.getenv("LLM_URL", "http://localhost:11434")
@@ -53,15 +60,24 @@ class SKSubAgentExecutor(AgentExecutor):
             async_client=async_openai,
         )
 
+        self.faq_mcp_plugin = MCPSsePlugin(
+            name="Agentic_Bank_FAQ",
+            description="Retrieval Agentic-Bank FAQ from Vector DB.",
+            url=AGENTIC_BANK_FAQ_MCP_URL,
+            load_prompts=False,
+        )
+
         kernel = Kernel()
         kernel.add_service(llama_service)
         kernel.add_service(qwen_service)
+        kernel.add_plugin(self.faq_mcp_plugin)
 
         self.llama_agent = ChatCompletionAgent(
             service=llama_service,
             name="llama-faq-subagent",
             kernel=kernel,
             instructions=SYSTEM_PROMPT,
+            plugins=[self.faq_mcp_plugin],
         )
 
         self.qwen_agent = ChatCompletionAgent(
@@ -69,10 +85,21 @@ class SKSubAgentExecutor(AgentExecutor):
             name="qwen-faq-subagent",
             kernel=kernel,
             instructions=SYSTEM_PROMPT,
+            plugins=[self.faq_mcp_plugin],
         )
 
+        # LLMサービスの設定を反映
         self.llama_agent.configure_service()
         self.qwen_agent.configure_service()
+
+        # 接続状態を追跡するフラグ
+        self._plugin_connected = False
+
+    async def _ensure_plugin_connected(self):
+        """MCPプラグインが未接続なら接続する。"""
+        if not self._plugin_connected:
+            await self.faq_mcp_plugin.connect()
+            self._plugin_connected = True
 
     async def execute(
         self,
@@ -90,19 +117,18 @@ class SKSubAgentExecutor(AgentExecutor):
         history = ChatHistory()
         history.add_user_message(user_input)
 
+        # メタデータからモデル種別を取得
         model = None
-
         if hasattr(context, "metadata") and context.metadata:
             model = context.metadata.get("model")
 
         print(f"[faq_rag_agent] model={model}, user_input={user_input}")
 
-        if model == "qwen":
-            agent = self.qwen_agent
-        else:
-            agent = self.llama_agent
+        # MCPプラグインに接続
+        await self._ensure_plugin_connected()
 
-        # TODO：modelごとにリクエストルーティング
+        agent = self.qwen_agent if model == "qwen" else self.llama_agent
+
         response_content = await agent.get_response(history)
 
         text = response_content.content

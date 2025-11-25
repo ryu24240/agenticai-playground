@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY mcp_tools/bank_faq_retriever/requirements.txt /app/requirements.txt
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY mcp_tools/bank_faq_retriever /app
+
+COPY common /app/common
+
+ENV PYTHONPATH=/app
+
+ENV QDRANT_URL=http://qdrant:6333
+ENV FAQ_COLLECTION=bank_faq
+
+CMD ["python", "server.py"]

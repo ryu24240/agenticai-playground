@@ -6,4 +6,5 @@ pydantic
 python-dotenv
 semantic-kernel>=1.0.0 
 semantic-kernel[ollama]
+semantic-kernel[mcp]
 a2a-sdk[http-server]
