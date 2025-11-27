@@ -17,6 +17,8 @@ from pydantic import BaseModel, TypeAdapter
 # ======================================
 MODEL_ENDPOINT = os.getenv("MODEL_ENDPOINT")
 MODEL_NAME = os.getenv("MODEL_NAME")
+AGENTIC_BANK_FAQ_MCP_URL = os.getenv("AGENTIC_BANK_FAQ_MCP_URL", "http://bank_faq_retriever:8000/mcp")
+
 
 # ======================================
 # グローバル（起動時に初期化）
@@ -131,7 +133,7 @@ async def lifespan(app: FastAPI):
         {
             "bank_faq_tools": {
                 "transport": "streamable_http",
-                "url": "http://faq_rag:8001/mcp",
+                "url": AGENTIC_BANK_FAQ_MCP_URL,
             }
         }
     )

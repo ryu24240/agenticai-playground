@@ -40,8 +40,8 @@ class ChatResponse(BaseModel):
     reply: str
     
 LLAMA_ENDPOINT = os.getenv("LLM_URL", "http://localhost:11434")
-QWEN_ENDPOINT = os.getenv("MODEL_ENDPOINT")
-QWEN_MODEL_NAME = os.getenv("MODEL_NAME")
+QWEN_ENDPOINT = os.getenv("MODEL_ENDPOINT", "dummy-endpoint")
+QWEN_MODEL_NAME = os.getenv("MODEL_NAME", "dummy-model")
 OPENAI_API_KEY = "this is dummy"
 
 REMOTE_AGENT_ADDRESSES: List[str] = [
@@ -130,19 +130,6 @@ thread = ChatHistoryAgentThread()
 #         return "\n".join(texts)
 
 
-ORCHESTRATOR_INSTRUCTIONS = """
-You are an expert delegator agent inside a 'Agentic banking' AI system.
-
-- You can delegate user requests to remote agents over the A2A protocol.
-- Use the tool `list_remote_agents` to discover which remote agents are available.
-- For actionable banking tasks, use `send_message_to_remote_agent` to call a
-  specific remote agent by its name.
-- Always base your answer on the actual tool results.
-- When you delegate to a remote agent, clearly mention which agent you used in
-  your final answer (e.g. 'Using Agentic Bank FAQ Agent: ...').
-- If the request is simple chit-chat or does not require any remote action,
-  you may answer directly on your own.
-""".strip()
 
 
 @asynccontextmanager
@@ -165,7 +152,20 @@ async def lifespan(app: FastAPI):
     llama_agent = ChatCompletionAgent(
         service=llama_service,
         name="llama-agent",
-        instructions="You are a helpful assistant using local llama.",
+        instructions="""
+        You are an expert delegator agent inside a 'Agentic banking' AI system.
+
+        - You can delegate user requests to remote agents over the A2A protocol.
+        - Use the tool `list_remote_agents` to discover which remote agents are available.
+        - For actionable banking tasks, use `send_message_to_remote_agent` to call a
+        specific remote agent by its name.
+        - Always base your answer on the actual tool results.
+        - Always answer in Japanese.
+        - When you delegate to a remote agent, clearly mention which agent you used in
+        your final answer (e.g. 'Using Agentic Bank FAQ Agent: ...').
+        - If the request is simple chit-chat or does not require any remote action,
+        you may answer directly on your own.
+        """,
         plugins=[a2a_plugin] if a2a_plugin is not None else [],
         function_choice_behavior=FunctionChoiceBehavior.Auto(),
     )
@@ -173,7 +173,20 @@ async def lifespan(app: FastAPI):
     qwen_agent = ChatCompletionAgent(
         service=qwen_service,
         name="qwen-agent",
-        instructions="You are a helpful assistant using Qwen model.",
+        instructions="""
+        You are an expert delegator agent inside a 'Agentic banking' AI system.
+
+        - You can delegate user requests to remote agents over the A2A protocol.
+        - Use the tool `list_remote_agents` to discover which remote agents are available.
+        - For actionable banking tasks, use `send_message_to_remote_agent` to call a
+        specific remote agent by its name.
+        - Always base your answer on the actual tool results.
+        - Always answer in Japanese.
+        - When you delegate to a remote agent, clearly mention which agent you used in
+        your final answer (e.g. 'Using Agentic Bank FAQ Agent: ...').
+        - If the request is simple chit-chat or does not require any remote action,
+        you may answer directly on your own.
+        """,
         plugins=[a2a_plugin] if a2a_plugin is not None else [],
     )
 
