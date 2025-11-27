@@ -1,4 +1,7 @@
 uvicorn[standard]>=0.30.0
-langgraph
-langchain
+fastapi==0.115.12
+langchain>=0.3.0
+langchain-openai==0.3.34
+langchain_mcp_adapters
+langgraph==0.6.8
 pydantic>=2.8.0
