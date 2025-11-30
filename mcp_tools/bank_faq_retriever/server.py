@@ -27,9 +27,11 @@ async def search_bank_faq(
     エージェンティック銀行FAQからクエリに近いエントリを検索する。
     戻り値は question/answer/score を持つ dict のリスト。
     """
+    print(f"[bank_faq_retriever] search_bank_faq called. query={query!r}, top_k={top_k}")
     # Embeddingサーバでクエリをベクトル化
     vectors = embed_texts([query])
     if not vectors:
+        print("[bank_faq_retriever] embed_texts returned empty vectors")
         return []
 
     query_vec = vectors[0]
@@ -41,6 +43,9 @@ async def search_bank_faq(
         limit=top_k,
         with_payload=True,
     )
+    
+    print("[bank_faq_retriever] hits =",
+        [(r.id, r.score, r.payload.get("question")) for r in results])
 
     out: List[Dict[str, Any]] = []
     for r in results:
@@ -58,10 +63,8 @@ async def search_bank_faq(
 
 
 if __name__ == "__main__":
-    # FastMCPのHTTP/streamable HTTP トランスポートで起動
     mcp.run(
-        transport="streamable-http",
+        transport="sse",
         host="0.0.0.0",
         port=8000,
-        path="/mcp",
     )

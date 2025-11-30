@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import os
 import uuid
+import time
+import asyncio
 from contextlib import asynccontextmanager
-
 import httpx
 from pydantic import BaseModel
 from typing import List, Annotated
@@ -13,6 +14,7 @@ from fastapi import FastAPI, HTTPException, Depends
 
 from openai import AsyncOpenAI
 from semantic_kernel.kernel import Kernel, ChatHistory
+from semantic_kernel.contents import TextContent, FunctionResultContent
 from semantic_kernel.connectors.ai.ollama import OllamaChatCompletion, OllamaChatPromptExecutionSettings
 from semantic_kernel.connectors.ai.open_ai import OpenAIChatCompletion, OpenAIChatPromptExecutionSettings
 from semantic_kernel.agents import ChatCompletionAgent, ChatHistoryAgentThread
@@ -134,20 +136,20 @@ thread = ChatHistoryAgentThread()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    http_client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=30.0))
+    http_client = httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=120.0))
 
     a2a_client = None
     a2a_plugin = None
 
-    try: 
-        a2a_client = await A2AClient.create(REMOTE_AGENT_ADDRESSES, http_client)
-        a2a_plugin = A2ATools(a2a_client)
-        print("[semantic_kernel] A2A client initialized. cards=",
-              [c.name for c in a2a_client.cards])
-    except Exception as e:
-        print(f"[semantic_kernel] Failed to init A2A client: {e}")
-        a2a_client = None
+    # try: 
+    a2a_client = await init_a2a_with_retry(REMOTE_AGENT_ADDRESSES, http_client)
+    if a2a_client is None:
+        print("[semantic_kernel] A2A init failed. MCP/A2A は使わずに起動します。")
         a2a_plugin = None
+    else:
+        print("[semantic_kernel] A2A client initialized. cards=",
+            [c.name for c in a2a_client.cards])
+        a2a_plugin = A2ATools(a2a_client)
 
     llama_agent = ChatCompletionAgent(
         service=llama_service,
@@ -159,6 +161,8 @@ async def lifespan(app: FastAPI):
         - Use the tool `list_remote_agents` to discover which remote agents are available.
         - For actionable banking tasks, use `send_message_to_remote_agent` to call a
         specific remote agent by its name.
+        - When calling `send_message_to_remote_agent`, you must pass the user's actual question (or a very short, natural rephrasing of it) in Japanese to parameters.message.
+        - Do not put abstract descriptions or meaningless/garbled strings in parameters.message.
         - Always base your answer on the actual tool results.
         - Always answer in Japanese.
         - When you delegate to a remote agent, clearly mention which agent you used in
@@ -174,12 +178,14 @@ async def lifespan(app: FastAPI):
         service=qwen_service,
         name="qwen-agent",
         instructions="""
-        You are an expert delegator agent inside a 'Agentic banking' AI system.
+        You are an expert delegator agent inside a 'Agentic banking(エージェンティック銀行)' AI system.
 
         - You can delegate user requests to remote agents over the A2A protocol.
         - Use the tool `list_remote_agents` to discover which remote agents are available.
         - For actionable banking tasks, use `send_message_to_remote_agent` to call a
         specific remote agent by its name.
+        - When calling `send_message_to_remote_agent`, you must pass the user's actual question (or a very short, natural rephrasing of it) in Japanese to parameters.message.
+        - Do not put abstract descriptions or meaningless/garbled strings in parameters.message.
         - Always base your answer on the actual tool results.
         - Always answer in Japanese.
         - When you delegate to a remote agent, clearly mention which agent you used in
@@ -209,6 +215,34 @@ app = FastAPI(
 def get_agent(request: ChatRequest) -> ChatCompletionAgent:
     return request.app.state.agent
 
+
+import asyncio
+import traceback
+
+async def init_a2a_with_retry(
+    addresses: List[str],
+    http_client: httpx.AsyncClient,
+    retries: int = 5,
+    delay: float = 2.0,
+) -> A2AClient | None:
+    last_error: Exception | None = None
+
+    for i in range(retries):
+        try:
+            print(f"[semantic_kernel] Trying A2AClient.create... attempt={i+1}")
+            client = await A2AClient.create(addresses, http_client)
+            print("[semantic_kernel] A2A client initialized in init_a2a_with_retry. cards=",
+                [c.name for c in client.cards])
+            return client
+        except Exception as e:
+            last_error = e
+            print(f"[semantic_kernel] A2A init failed (attempt {i+1}/{retries}): {repr(e)}")
+            traceback.print_exception(type(e), e, e.__traceback__)
+            await asyncio.sleep(delay)
+
+    print("[semantic_kernel] A2A init finally failed. Giving up.")
+    return None
+
 @app.post("/orchestrate")
 async def orchestrate(req: ChatRequest,) -> ChatResponse:
     if not req.messages:
@@ -223,23 +257,71 @@ async def orchestrate(req: ChatRequest,) -> ChatResponse:
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported model: {model}")
     
+    last_user_msg = None
+    for m in reversed(req.messages):
+        if m.role == "user":
+            last_user_msg = m.content
+            break
+
+    if last_user_msg is None:
+        raise HTTPException(status_code=400, detail="No user message found")
+
+    if any(kw in last_user_msg for kw in ["振込", "振り込み", "振り込", "手数料"]):
+        a2a_client = app.state.a2a_client
+        if a2a_client is not None:
+            tools = A2ATools(a2a_client)
+            faq_answer = await tools.send_message_to_remote_agent(
+                agent_name="Agentic Bank FAQ Agent",
+                message=last_user_msg,
+            )
+            reply = f"Using Agentic Bank FAQ Agent: {faq_answer}"
+            return ChatResponse(reply=reply)
+
+    model = req.model or "llama"
+    if model == "llama":
+        agent = app.state.llama_agent
+    elif model == "qwen":
+        agent = app.state.qwen_agent
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported model: {model}")
+    
     history = ChatHistory()
     for m in req.messages:
         if m.role == "user":
             history.add_user_message(m.content)
         elif m.role == "assistant":
             history.add_assistant_message(m.content)
-
+            
+    start = time.time()
     try:
-        response_content = await agent.get_response(history)
 
-        text = response_content.content
-        if isinstance(text, list):
-            text = "".join(map(str, text))
-        if not isinstance(text, str):
-            text = str(response_content)
+        last_response = await agent.get_response(history)
+        
+        print("[semantic_kernel] response.items types =",
+        [type(item).__name__ for item in last_response.items])
+            
+        elapsed = time.time() - start
+        print(f"[semantic_kernel] agent.invoke took {elapsed:.1f} sec")
 
-        return ChatResponse(reply=text)
+        if last_response is None:
+            raise RuntimeError("Agent returned no response")
+
+        texts: list[str] = []
+        for item in last_response.items:
+            if isinstance(item, TextContent):
+                if item.text:
+                    texts.append(item.text)
+                    
+            elif isinstance(item, FunctionResultContent):
+                if item.result:
+                    texts.append(str(item.result))
+
+        reply = "\n".join(texts).strip()
+        if not reply:
+            reply = str(last_response)
+
+        return ChatResponse(reply=reply)
+    
     except Exception as e:
         raise HTTPException(
             status_code=500,

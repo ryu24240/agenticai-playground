@@ -53,7 +53,7 @@ services:
       dockerfile: Dockerfile.langgraph
     container_name: langgraph
     ports:
-      - "8200:8200"
+      - "8300:8300"
     volumes:
       - ./orchestrator/langgraph:/app
     env_file:
@@ -73,7 +73,7 @@ services:
       dockerfile: Dockerfile.faq_rag_agent
     container_name: faq_rag_agent
     ports:
-      - "8600:8600"
+      - "8200:8200"
     volumes:
       - ./sub_agent/faq_rag_agent:/app
     env_file:
@@ -82,6 +82,7 @@ services:
       - FAQ_RAG_AGENT_PORT=8200
       - LLM_URL=http://llm:11434
       - QDRANT_URL=http://qdrant:6333
+      - AGENTIC_BANK_FAQ_MCP_URL=http://bank_faq_retriever:8000/sse
     depends_on:
       - llm
       - qdrant

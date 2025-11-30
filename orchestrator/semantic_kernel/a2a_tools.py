@@ -43,8 +43,9 @@ class A2ATools:
     @kernel_function(
         name="send_message_to_remote_agent",
         description=(
-            "Send a user message to a remote A2A agent by name and return the "
-            "agent's textual responses."
+            "指定された remote A2A agent に『ユーザーの質問テキストそのもの』を渡して実行します。"
+            "parameters.message には必ず「ユーザーが実際に入力した質問」を日本語でそのまま入れてください。"
+            "要約や別表現、暗号化した文章ではなく、できるだけ原文に近いテキストを渡してください。"
         ),
     )
     async def send_message_to_remote_agent(
@@ -52,13 +53,28 @@ class A2ATools:
         agent_name: Annotated[str, "Name property of the remote AgentCard"],
         message: Annotated[str, "User message to send to the remote agent."],
     ) -> Annotated[str, "Concatenated text reply from the remote agent"]:
-        """
-        名前で指定されたリモートエージェントにメッセージを送り、
-        text パートを連結して返す。
-        """
+
+        print(f"[A2ATools] send_message_to_remote_agent called. "
+            f"agent_name={agent_name!r}, message={message!r}")
+        
+        if self._a2a_client is None:
+            raise ValueError("A2A client is not initialized")
+
         client = self._a2a_client.clients.get(agent_name)
+
         if client is None:
-            raise ValueError(f"Agent {agent_name!r} not found in A2A clients")
+            available = list(self._a2a_client.clients.keys())
+            print(f"[A2ATools] agent not found: {agent_name!r}, available={available}")
+
+            if len(available) == 1:
+                print("[A2ATools] fallback: using the only available agent.")
+                client = self._a2a_client.clients[available[0]]
+
+            if client is None:
+                raise ValueError(
+                    f"Agent {agent_name!r} not found in A2A clients. "
+                    f"available={available}"
+                )
 
         request_message = A2AMessage(
             role=Role.user,

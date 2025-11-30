@@ -69,7 +69,7 @@ def render_playground():
             placeholder.markdown("Thinking...")
 
             try:
-                res = requests.post(f"{CHAT_SERVER_URL}/chat", json=payload, timeout=60)
+                res = requests.post(f"{CHAT_SERVER_URL}/chat", json=payload, timeout=180)
                 res.raise_for_status()
                 data = res.json()
                 reply = data.get("reply", "(no reply)")

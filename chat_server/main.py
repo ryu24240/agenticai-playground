@@ -20,7 +20,7 @@ class ChatResponse(BaseModel):
     reply: str
 
 SEMANTIC_KERNEL_URL = os.getenv("SEMANTIC_KERNEL_URL", "http://semantic_kernel:8100")
-LANGGRAPH_URL = os.getenv("LANGGRAPH_URL", "http://langgraph:8200")
+LANGGRAPH_URL = os.getenv("LANGGRAPH_URL", "http://langgraph:8300")
 
 app = FastAPI(title="Chat Server")
 
@@ -36,16 +36,16 @@ async def chat(req: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=400, detail="No messages provided")
     else:
         json_payload = req.model_dump()
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=180.0)) as client:
             if req.orchestrator == "Semantic Kernel":
-                response = await client.post(f"{SEMANTIC_KERNEL_URL}/orchestrate", json=json_payload, timeout=60)
+                response = await client.post(f"{SEMANTIC_KERNEL_URL}/orchestrate", json=json_payload)
                 response.raise_for_status()
                 data = response.json()
 
                 return ChatResponse(reply=data.get("reply", "(no reply)"))
             
             elif req.orchestrator == "LangGraph":
-                response = await client.post(f"{LANGGRAPH_URL}/orchestrate", json=json_payload, timeout=60)
+                response = await client.post(f"{LANGGRAPH_URL}/orchestrate", json=json_payload)
                 response.raise_for_status()
                 data = response.json()
 

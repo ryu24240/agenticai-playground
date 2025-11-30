@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
@@ -16,12 +17,13 @@ from semantic_kernel import Kernel
 from semantic_kernel.connectors.ai.ollama import OllamaChatCompletion, OllamaChatPromptExecutionSettings
 from semantic_kernel.connectors.ai.open_ai import OpenAIChatCompletion
 from semantic_kernel.connectors.mcp import MCPSsePlugin
+from semantic_kernel.connectors.ai.function_choice_behavior import FunctionChoiceBehavior
 from semantic_kernel.contents import AuthorRole, ChatMessageContent, ChatHistory
 from semantic_kernel.agents import ChatCompletionAgent
 
 # from fastmcp import Client as MCPClient
 
-AGENTIC_BANK_FAQ_MCP_URL = os.getenv("AGENTIC_BANK_FAQ_MCP_URL", "http://bank_faq_retriever:8000/mcp")
+AGENTIC_BANK_FAQ_MCP_URL = os.getenv("AGENTIC_BANK_FAQ_MCP_URL", "http://bank_faq_retriever:8000/sse")
 
 
 
@@ -104,6 +106,7 @@ class SKSubAgentExecutor(AgentExecutor):
             kernel=kernel,
             instructions=SYSTEM_PROMPT,
             plugins=[self.faq_mcp_plugin],
+            function_choice_behavior=FunctionChoiceBehavior.Auto(),
         )
 
         self.qwen_agent = ChatCompletionAgent(
@@ -112,6 +115,7 @@ class SKSubAgentExecutor(AgentExecutor):
             kernel=kernel,
             instructions=SYSTEM_PROMPT,
             plugins=[self.faq_mcp_plugin],
+            function_choice_behavior=FunctionChoiceBehavior.Auto(),
         )
 
         # LLMサービスの設定を反映
@@ -136,9 +140,11 @@ class SKSubAgentExecutor(AgentExecutor):
         A2A サーバからのリクエストを受け取り、
         SK エージェントを呼び出して結果を A2A イベントとして返す。
         """
+        start = time.time()
         user_input = context.get_user_input() or ""
 
-        print("[faq_rag_agent] context =", context)
+        print("[faq_rag_agent] raw context message =", context.message)
+        print("[faq_rag_agent] get_user_input() =", repr(user_input))
 
         history = ChatHistory()
         history.add_user_message(user_input)
@@ -157,6 +163,9 @@ class SKSubAgentExecutor(AgentExecutor):
 
         response_content = await agent.get_response(history)
 
+        elapsed = time.time() - start
+        print(f"[faq_rag_agent] total execute took {elapsed:.1f} sec")
+        
         text = response_content.content
         if isinstance(text, list):
             text = "".join(map(str, text))
@@ -173,8 +182,8 @@ class SKSubAgentExecutor(AgentExecutor):
         raise Exception("cancel not supported")
 
 skill = AgentSkill(
-    id="mock_bank_subagent",
-    name="Mock Bank SubAgent",
+    id="agentic_bank_subagent",
+    name="Agentic Bank FAQ Agent",
     description="エージェンティック銀行向けチャットボットのサブエージェント。公開FAQの説明を行う。",
     tags=["agentic-bank", "FAQ", "semantic-kernel"],
     examples=[
@@ -184,9 +193,9 @@ skill = AgentSkill(
 )
 
 public_agent_card = AgentCard(
-    name="Agentic-Bank FAQ SubAgent",
+    name="Agentic Bank FAQ Agent",
     description="Semantic Kernel ベースで実装されたエージェンティック銀行向けFAQサブエージェント。",
-    url=os.getenv("PUBLIC_AGENT_URL", "http://mock_agent_server:8200/"),
+    url=os.getenv("PUBLIC_AGENT_URL", "http://faq_rag_agent:8200/"),
     version="1.0.0",
     default_input_modes=["text"],
     default_output_modes=["text"],
